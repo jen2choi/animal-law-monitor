@@ -1,0 +1,45 @@
+name: 동물보호법 발의안 모니터링
+
+on:
+  schedule:
+    - cron: '0 0 * * *'
+    - cron: '30 0 * * 1'
+  workflow_dispatch:
+
+jobs:
+  collect_and_report:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Python 설치
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - name: 패키지 설치
+      run: pip install requests apscheduler openpyxl gspread google-auth
+
+    - name: DB 초기화
+      run: python database.py
+
+    - name: DB 복원
+      uses: actions/cache@v4
+      with:
+        path: data/bills.db
+        key: bills-db-${{ github.run_number }}
+        restore-keys: bills-db-
+
+    - name: 수집 및 리포트 생성
+      env:
+        ASSEMBLY_API_KEY: ${{ secrets.ASSEMBLY_API_KEY }}
+        GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
+        SPREADSHEET_ID: ${{ secrets.SPREADSHEET_ID }}
+      run: python scheduler.py --now
+
+    - name: DB 저장
+      uses: actions/cache/save@v4
+      with:
+        path: data/bills.db
+        key: bills-db-${{ github.run_number }}
