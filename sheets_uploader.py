@@ -116,17 +116,20 @@ def upload_to_sheets(data: dict, start: str, end: str):
         write_sheet(ws, headers, rows)
 
         # ── 전체 발의안 ──
-        ws = get_or_create_sheet(sh, "전체발의안", rows=1000, cols=13)
-        headers = ["의안번호", "의안종류", "의안명", "제안자구분", "대표발의자",
-                   "발의일", "회기", "소관위원회", "위원회처리결과",
-                   "본회의결과", "처리일", "최초수집일", "링크"]
-        rows = [[b["bill_no"], b["bill_kind"] or "-", b["bill_name"],
+        ws = get_or_create_sheet(sh, "전체발의안", rows=1000, cols=15)
+        headers = ["관련성점수", "AI태그", "의안번호", "의안종류", "의안명",
+                   "제안자구분", "대표발의자", "발의일", "회기",
+                   "소관위원회", "위원회처리결과", "본회의결과", "처리일",
+                   "최초수집일", "링크"]
+        rows = [([b.get("ai_score") or "-",
+                 b.get("ai_tags") or "-",
+                 b["bill_no"], b["bill_kind"] or "-", b["bill_name"],
                  b["proposer_kind"] or "-", b["proposer"] or "-",
                  b["propose_dt"] or "-", b["propose_sess"] or "-",
                  b["committee"] or "-", b["committee_proc_result"] or "-",
                  b["proc_result"] or "계류중", b["proc_dt"] or "-",
                  b["first_seen"][:10] if b.get("first_seen") else "-",
-                 b["detail_link"] or "-"]
+                 b["detail_link"] or "-"])
                 for b in data["all_bills"]]
         write_sheet(ws, headers, rows)
 
