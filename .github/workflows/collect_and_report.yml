@@ -19,10 +19,7 @@ jobs:
         python-version: '3.11'
 
     - name: 패키지 설치
-      run: pip install requests apscheduler openpyxl gspread google-auth
-
-    - name: DB 초기화
-      run: python database.py
+      run: pip install requests apscheduler openpyxl gspread google-auth anthropic
 
     - name: DB 복원
       uses: actions/cache@v4
@@ -31,11 +28,15 @@ jobs:
         key: bills-db-${{ github.run_number }}
         restore-keys: bills-db-
 
+    - name: DB 초기화
+      run: python database.py
+
     - name: 수집 및 리포트 생성
       env:
         ASSEMBLY_API_KEY: ${{ secrets.ASSEMBLY_API_KEY }}
         GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
         SPREADSHEET_ID: ${{ secrets.SPREADSHEET_ID }}
+        ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
       run: python scheduler.py --now
 
     - name: DB 저장
