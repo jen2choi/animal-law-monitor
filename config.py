@@ -3,15 +3,15 @@
 """
 import os
 from pathlib import Path
- 
+
 BASE_DIR = Path(__file__).parent
- 
+
 # ──────────────────────────────────────────────
 # 국회 OpenAPI 설정
 # ──────────────────────────────────────────────
 API_KEY = os.getenv("ASSEMBLY_API_KEY", "2f9680f4b1554511954ba421194ee8bb")
 API_BASE_URL = "https://open.assembly.go.kr/portal/openapi"
- 
+
 # 검색 키워드 - 동물복지/보호/권리 관련 광범위 수집
 SEARCH_KEYWORDS = [
     # 직접 동물 관련
@@ -36,36 +36,36 @@ SEARCH_KEYWORDS = [
     "수산생물",
     "해양생물",
 ]
- 
+
 MAX_PAGES = 10
- 
+
 # ──────────────────────────────────────────────
 # DB 설정
 # ──────────────────────────────────────────────
 DB_PATH = BASE_DIR / "data" / "bills.db"
- 
+
 # ──────────────────────────────────────────────
 # 스케줄 설정
 # ──────────────────────────────────────────────
 COLLECT_HOUR = 9
 COLLECT_MINUTE = 0
- 
+
 REPORT_WEEKDAY = "mon"
 REPORT_HOUR = 9
 REPORT_MINUTE = 30
- 
+
 # ──────────────────────────────────────────────
 # 리포트 출력 설정
 # ──────────────────────────────────────────────
 REPORT_DIR = BASE_DIR / "reports"
 REPORT_FORMAT = "markdown"
- 
+
 # ──────────────────────────────────────────────
 # Google Sheets 설정
 # ──────────────────────────────────────────────
 GOOGLE_CREDENTIALS = os.getenv("GOOGLE_CREDENTIALS", "")
 SPREADSHEET_ID = os.getenv("SPREADSHEET_ID", "")
- 
+
 # ──────────────────────────────────────────────
 # AI 필터링 설정 (Claude API)
 # ──────────────────────────────────────────────
