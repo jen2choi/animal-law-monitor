@@ -127,7 +127,7 @@ def upload_to_sheets(data: dict, start: str, end: str):
                  b["proposer_kind"] or "-", b["proposer"] or "-",
                  b["propose_dt"] or "-", b["propose_sess"] or "-",
                  b["committee"] or "-", b["committee_proc_result"] or "-",
-                 b["proc_result"] or "계류중", b["proc_dt"] or "-",
+                 b["proc_result"] or "-", b["proc_dt"] or "-",
                  b["first_seen"][:10] if b.get("first_seen") else "-",
                  b["detail_link"] or "-"])
                 for b in data["all_bills"]]
