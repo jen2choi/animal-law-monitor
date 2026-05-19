@@ -1,8 +1,13 @@
 """
 Google Sheets 업로더 - ALLBILLV2 필드 반영
 [수정 내용]
-- 전체발의안 시트: proc_result 빈 값을 "계류중"으로 채우던 버그 수정 → "-"으로 변경
-- 단계 구분이 코드.gs에서 정확히 동작하도록 빈 값 처리 통일
+- 전체발의안 시트: proc_result 빈 값을 "-"으로 수정 (기존 "계류중" 버그 수정)
+- 전체발의안 시트: "포함여부" 열 추가
+  · Y = 대시보드에 표시
+  · N = 대시보드에서 제외
+  · 기본값: AI 점수 3점 이상이면 Y, 미만이면 N
+  · 담당자가 시트에서 직접 Y/N 수정 가능 (수동 override)
+  · 이미 값이 있는 셀은 덮어쓰지 않음 (수동 수정 보존)
 """
 import json
 import logging
@@ -11,7 +16,7 @@ from datetime import datetime
 import gspread
 from google.oauth2.service_account import Credentials
 
-from config import GOOGLE_CREDENTIALS, SPREADSHEET_ID
+from config import GOOGLE_CREDENTIALS, SPREADSHEET_ID, AI_RELEVANCE_THRESHOLD
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +32,7 @@ def get_client():
     return gspread.authorize(creds)
 
 
-def get_or_create_sheet(sh, name, rows=500, cols=15):
+def get_or_create_sheet(sh, name, rows=500, cols=20):
     try:
         return sh.worksheet(name)
     except gspread.WorksheetNotFound:
@@ -45,30 +50,6 @@ def write_sheet(ws, headers, rows):
                        "foregroundColor": {"red": 1, "green": 1, "blue": 1}},
         "horizontalAlignment": "CENTER"
     })
-
-
-def classify_stage(committee_proc_result: str, proc_result: str, committee: str) -> str:
-    """
-    단계 분류 헬퍼 — sheets_uploader에서도 동일한 로직 사용
-    반환값: 'received' / 'committee' / 'plenary' / 'completed'
-    """
-    EMPTY = {'', '-', None}
-    DONE_PLENARY = {'가결', '부결', '폐기', '수정가결', '대안반영폐기', '철회',
-                    '원안가결', '수정안반영폐기', '임기만료폐기'}
-    DONE_CMMT    = {'가결', '부결', '폐기', '수정가결', '대안가결', '원안가결',
-                    '대안반영폐기', '수정안반영폐기', '철회'}
-
-    pr  = (proc_result or '').strip()
-    cpr = (committee_proc_result or '').strip()
-    cmt = (committee or '').strip()
-
-    if pr and pr not in EMPTY and pr in DONE_PLENARY:
-        return 'completed'
-    if cpr and cpr not in EMPTY and cpr in DONE_CMMT:
-        return 'plenary'       # 위원회 통과 → 본회의 대기
-    if cmt and cmt not in EMPTY and cmt != '-':
-        return 'committee'     # 위원회 배정됨
-    return 'received'
 
 
 def upload_to_sheets(data: dict, start: str, end: str):
@@ -106,7 +87,7 @@ def upload_to_sheets(data: dict, start: str, end: str):
         rows = [[b["bill_no"], b["bill_kind"] or "-", b["bill_name"],
                  b["proposer_kind"] or "-", b["proposer"] or "-",
                  b["propose_dt"] or "-", b["committee"] or "-",
-                 b["committee_proc_result"] or "-",   # ✅ "미처리" 제거
+                 b["committee_proc_result"] or "-",
                  b["detail_link"] or "-"]
                 for b in data["pending"]]
         write_sheet(ws, headers, rows)
@@ -145,33 +126,73 @@ def upload_to_sheets(data: dict, start: str, end: str):
 
         # ── 전체 발의안 ──
         # 컬럼 순서 (코드.gs의 row[] 인덱스와 정확히 매핑):
-        # [0] 관련성점수  [1] AI태그  [2] 의안번호  [3] 의안종류  [4] 의안명
-        # [5] 제안자구분  [6] 대표발의자  [7] 발의일  [8] 회기
-        # [9] 소관위원회  [10] 위원회처리결과  [11] 본회의결과  ← ✅ 빈값은 "-"
-        # [12] 처리일  [13] 최초수집일  [14] 링크
-        ws = get_or_create_sheet(sh, "전체발의안", rows=1000, cols=15)
-        headers = ["관련성점수", "AI태그", "의안번호", "의안종류", "의안명",
+        # [0] 포함여부(Y/N)  [1] 관련성점수  [2] AI태그  [3] 의안번호  [4] 의안종류
+        # [5] 의안명  [6] 제안자구분  [7] 대표발의자  [8] 발의일  [9] 회기
+        # [10] 소관위원회  [11] 위원회처리결과  [12] 본회의결과
+        # [13] 처리일  [14] 최초수집일  [15] 링크
+
+        ws = get_or_create_sheet(sh, "전체발의안", rows=1000, cols=16)
+
+        # 기존 포함여부 값 읽어오기 (수동 수정 보존)
+        existing_include = {}
+        try:
+            existing_data = ws.get_all_values()
+            if len(existing_data) > 1:
+                for row in existing_data[1:]:
+                    if len(row) >= 4 and row[3]:  # bill_no는 [3]
+                        bill_no = row[3]
+                        include_val = row[0] if row[0] in ("Y", "N") else None
+                        if include_val:
+                            existing_include[bill_no] = include_val
+        except Exception:
+            pass
+
+        headers = ["포함여부", "관련성점수", "AI태그", "의안번호", "의안종류", "의안명",
                    "제안자구분", "대표발의자", "발의일", "회기",
                    "소관위원회", "위원회처리결과", "본회의결과", "처리일",
                    "최초수집일", "링크"]
-        rows = [[
-            b.get("ai_score") or "-",
-            b.get("ai_tags") or "-",
-            b["bill_no"],
-            b["bill_kind"] or "-",
-            b["bill_name"],
-            b["proposer_kind"] or "-",
-            b["proposer"] or "-",
-            b["propose_dt"] or "-",
-            b["propose_sess"] or "-",
-            b["committee"] or "-",
-            b["committee_proc_result"] or "-",   # ✅ 빈값 → "-" (미처리 제거)
-            b["proc_result"] or "-",              # ✅ 핵심 수정: "계류중" → "-"
-            b["proc_dt"] or "-",
-            b["first_seen"][:10] if b.get("first_seen") else "-",
-            b["detail_link"] or "-"
-        ] for b in data["all_bills"]]
+
+        rows = []
+        for b in data["all_bills"]:
+            score = b.get("ai_score")
+            bill_no = b["bill_no"]
+
+            # 포함여부 결정: 기존 수동 수정값 우선, 없으면 점수 기준 자동
+            if bill_no in existing_include:
+                include = existing_include[bill_no]   # 수동 수정 보존
+            elif score is not None:
+                include = "Y" if score >= AI_RELEVANCE_THRESHOLD else "N"
+            else:
+                include = "Y"   # 점수 없으면 일단 포함 (나중에 분류)
+
+            rows.append([
+                include,
+                score if score is not None else "-",
+                b.get("ai_tags") or "-",
+                bill_no,
+                b["bill_kind"] or "-",
+                b["bill_name"],
+                b["proposer_kind"] or "-",
+                b["proposer"] or "-",
+                b["propose_dt"] or "-",
+                b["propose_sess"] or "-",
+                b["committee"] or "-",
+                b["committee_proc_result"] or "-",
+                b["proc_result"] or "-",
+                b["proc_dt"] or "-",
+                b["first_seen"][:10] if b.get("first_seen") else "-",
+                b["detail_link"] or "-"
+            ])
+
         write_sheet(ws, headers, rows)
+
+        # 포함여부 열(A열) 강조 포맷
+        ws.format("A2:A1000", {
+            "horizontalAlignment": "CENTER",
+            "textFormat": {"bold": True}
+        })
+        # Y는 초록, N은 빨강으로 조건부 색상 (배경색으로 구분)
+        # gspread는 조건부서식 미지원이므로 텍스트로만 표시
 
         # ── 통계 ──
         ws = get_or_create_sheet(sh, "통계", rows=100, cols=4)
