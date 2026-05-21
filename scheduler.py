@@ -37,14 +37,14 @@ def job_collect():
     except Exception:
         logger.exception("✘ 수집 잡 오류")
 
-    # AI 필터링 (신규 발의안 분석)
-    try:
-        from ai_filter import run_ai_filter, migrate_db
-        migrate_db()
-        run_ai_filter()
-        logger.info("✔ AI 분석 완료")
-    except Exception:
-        logger.warning("AI 분석 건너뜀 (설정 확인 필요)")
+    # AI 필터링 (신규 발의안 분류)
+try:
+    from ai_filter import run_ai_filter, migrate_db
+    migrate_db()
+    run_ai_filter(force=True)  # ← force=True 추가 (기존 데이터도 재분류)
+    logger.info("✔ AI 분석 완료")
+except Exception as e:
+    logger.warning("AI 분석 건너뜀: %s", e, exc_info=True)  # ← 실제 오류 출력
 
 
 def job_report():
