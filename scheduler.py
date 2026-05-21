@@ -9,7 +9,6 @@ import sys
 from datetime import datetime
 from apscheduler.schedulers.blocking import BlockingScheduler
 from apscheduler.triggers.cron import CronTrigger
-
 from config import (
     COLLECT_HOUR, COLLECT_MINUTE,
     REPORT_WEEKDAY, REPORT_HOUR, REPORT_MINUTE,
@@ -38,13 +37,13 @@ def job_collect():
         logger.exception("✘ 수집 잡 오류")
 
     # AI 필터링 (신규 발의안 분류)
-try:
-    from ai_filter import run_ai_filter, migrate_db
-    migrate_db()
-    run_ai_filter(force=True)  # ← force=True 추가 (기존 데이터도 재분류)
-    logger.info("✔ AI 분석 완료")
-except Exception as e:
-    logger.warning("AI 분석 건너뜀: %s", e, exc_info=True)  # ← 실제 오류 출력
+    try:
+        from ai_filter import run_ai_filter, migrate_db
+        migrate_db()
+        run_ai_filter(force=True)
+        logger.info("✔ AI 분석 완료")
+    except Exception as e:
+        logger.warning("AI 분석 건너뜀: %s", e, exc_info=True)
 
 
 def job_report():
@@ -52,7 +51,6 @@ def job_report():
     try:
         path = generate_weekly_report()
         logger.info("✔ 엑셀 리포트 생성 완료: %s", path)
-
         try:
             from sheets_uploader import upload_to_sheets
             data, start_str, end_str = get_report_data()
@@ -60,7 +58,6 @@ def job_report():
             logger.info("✔ Google Sheets 업로드 완료")
         except Exception:
             logger.warning("Google Sheets 업로드 건너뜀 (설정 확인 필요)")
-
     except Exception:
         logger.exception("✘ 리포트 잡 오류")
 
@@ -68,7 +65,6 @@ def job_report():
 def main():
     init_db()
     scheduler = BlockingScheduler(timezone="Asia/Seoul")
-
     scheduler.add_job(
         job_collect,
         CronTrigger(hour=COLLECT_HOUR, minute=COLLECT_MINUTE),
@@ -76,7 +72,6 @@ def main():
         name="일일 발의안 수집",
         misfire_grace_time=3600,
     )
-
     scheduler.add_job(
         job_report,
         CronTrigger(day_of_week=REPORT_WEEKDAY,
@@ -93,7 +88,6 @@ def main():
 
     signal.signal(signal.SIGINT, handle_signal)
     signal.signal(signal.SIGTERM, handle_signal)
-
     logger.info("═══ 모니터링 시스템 시작 ═══")
     scheduler.start()
 
