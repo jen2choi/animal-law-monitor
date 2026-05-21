@@ -12,6 +12,9 @@
 ※ 마사회법, 가축전염병법 등 경계선 법안은 낮은 점수로 N 처리되지만
   담당자가 구글 시트 "포함여부" 열에서 Y로 직접 수정 가능
 """
+
+print("ai_filter.py 로드됨", flush=True)
+
 import json
 import logging
 
