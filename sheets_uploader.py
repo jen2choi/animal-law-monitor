@@ -1,13 +1,12 @@
 """
 Google Sheets 업로더 - ALLBILLV2 필드 반영
-[수정 내용]
-- 전체발의안 시트: proc_result 빈 값을 "-"으로 수정 (기존 "계류중" 버그 수정)
-- 전체발의안 시트: "포함여부" 열 추가
-  · Y = 대시보드에 표시
-  · N = 대시보드에서 제외
-  · 기본값: AI 점수 3점 이상이면 Y, 미만이면 N
-  · 담당자가 시트에서 직접 Y/N 수정 가능 (수동 override)
-  · 이미 값이 있는 셀은 덮어쓰지 않음 (수동 수정 보존)
+[포함여부 3단계]
+  Y = 포함 확정 (5점, 4점 또는 수동 확인)
+  N = 제외 확정 (1점 또는 수동 제외)
+  ? = 검토 필요 (2점, 3점 - 담당자가 Y/N으로 수동 변경)
+[수동 수정 보존]
+  기존에 Y 또는 N으로 수동 변경한 셀은 덮어쓰지 않음
+  ? 는 매번 재계산 (점수가 바뀔 수 있으므로)
 """
 import json
 import logging
@@ -16,7 +15,7 @@ from datetime import datetime
 import gspread
 from google.oauth2.service_account import Credentials
 
-from config import GOOGLE_CREDENTIALS, SPREADSHEET_ID, AI_RELEVANCE_THRESHOLD
+from config import GOOGLE_CREDENTIALS, SPREADSHEET_ID
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +49,23 @@ def write_sheet(ws, headers, rows):
                        "foregroundColor": {"red": 1, "green": 1, "blue": 1}},
         "horizontalAlignment": "CENTER"
     })
+
+
+def get_include_flag(score: int | None) -> str:
+    """
+    점수 기반 포함여부 자동 결정
+    5점, 4점 → Y (포함 확정)
+    3점, 2점 → ? (검토 필요)
+    1점      → N (제외 확정)
+    없음     → ? (검토 필요)
+    """
+    if score is None:
+        return "?"
+    if score >= 4:
+        return "Y"
+    if score >= 2:
+        return "?"
+    return "N"
 
 
 def upload_to_sheets(data: dict, start: str, end: str):
@@ -125,16 +141,29 @@ def upload_to_sheets(data: dict, start: str, end: str):
         write_sheet(ws, headers, rows)
 
         # ── 전체 발의안 ──
-        # 컬럼 순서 (코드.gs의 row[] 인덱스와 정확히 매핑):
-        # [0] 포함여부(Y/N)  [1] 관련성점수  [2] AI태그  [3] 의안번호  [4] 의안종류
+        # 컬럼 순서:
+        # [0] 포함여부(Y/N/?)  [1] 관련성점수  [2] AI태그  [3] 의안번호  [4] 의안종류
         # [5] 의안명  [6] 제안자구분  [7] 대표발의자  [8] 발의일  [9] 회기
         # [10] 소관위원회  [11] 위원회처리결과  [12] 본회의결과
         # [13] 처리일  [14] 최초수집일  [15] 링크
 
         ws = get_or_create_sheet(sh, "전체발의안", rows=1000, cols=16)
 
-        # 기존 포함여부 값 읽어오기 (수동 수정 보존)
-        existing_include = {}
+        # 기존 Y/N 수동 수정값 읽어오기 (? 는 보존 안 함 - 재계산)
+        existing_manual = {}
+        try:
+            existing_data = ws.get_all_values()
+            if len(existing_data) > 1:
+                for row in existing_data[1:]:
+                    if len(row) >= 4 and row[3]:
+                        bill_no = row[3]
+                        val = row[0].strip() if row[0] else ""
+                        # Y 또는 N으로 수동 확정된 것만 보존
+                        # ? 는 보존하지 않고 재계산
+                        if val in ("Y", "N"):
+                            existing_manual[bill_no] = val
+        except Exception:
+            pass
 
         headers = ["포함여부", "관련성점수", "AI태그", "의안번호", "의안종류", "의안명",
                    "제안자구분", "대표발의자", "발의일", "회기",
@@ -144,15 +173,23 @@ def upload_to_sheets(data: dict, start: str, end: str):
         rows = []
         for b in data["all_bills"]:
             score = b.get("ai_score")
+            if isinstance(score, str) and score == "-":
+                score = None
+            elif score is not None:
+                try:
+                    score = int(score)
+                except (ValueError, TypeError):
+                    score = None
+
             bill_no = b["bill_no"]
 
-            # 포함여부 결정: 기존 수동 수정값 우선, 없으면 점수 기준 자동
-            if bill_no in existing_include:
-                include = existing_include[bill_no]   # 수동 수정 보존
-            elif score is not None:
-                include = "Y" if score >= AI_RELEVANCE_THRESHOLD else "N"
+            # 포함여부 결정
+            if bill_no in existing_manual:
+                # 수동으로 Y/N 확정한 것은 보존
+                include = existing_manual[bill_no]
             else:
-                include = "Y"   # 점수 없으면 일단 포함 (나중에 분류)
+                # 점수 기반 자동 결정
+                include = get_include_flag(score)
 
             rows.append([
                 include,
@@ -175,13 +212,11 @@ def upload_to_sheets(data: dict, start: str, end: str):
 
         write_sheet(ws, headers, rows)
 
-        # 포함여부 열(A열) 강조 포맷
+        # 포함여부 열(A열) 포맷
         ws.format("A2:A1000", {
             "horizontalAlignment": "CENTER",
             "textFormat": {"bold": True}
         })
-        # Y는 초록, N은 빨강으로 조건부 색상 (배경색으로 구분)
-        # gspread는 조건부서식 미지원이므로 텍스트로만 표시
 
         # ── 통계 ──
         ws = get_or_create_sheet(sh, "통계", rows=100, cols=4)
