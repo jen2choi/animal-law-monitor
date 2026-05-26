@@ -135,17 +135,6 @@ def upload_to_sheets(data: dict, start: str, end: str):
 
         # 기존 포함여부 값 읽어오기 (수동 수정 보존)
         existing_include = {}
-        try:
-            existing_data = ws.get_all_values()
-            if len(existing_data) > 1:
-                for row in existing_data[1:]:
-                    if len(row) >= 4 and row[3]:  # bill_no는 [3]
-                        bill_no = row[3]
-                        include_val = row[0] if row[0] in ("Y", "N") else None
-                        if include_val:
-                            existing_include[bill_no] = include_val
-        except Exception:
-            pass
 
         headers = ["포함여부", "관련성점수", "AI태그", "의안번호", "의안종류", "의안명",
                    "제안자구분", "대표발의자", "발의일", "회기",
