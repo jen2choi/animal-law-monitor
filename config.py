@@ -71,4 +71,4 @@ SPREADSHEET_ID = os.getenv("SPREADSHEET_ID", "")
 # ──────────────────────────────────────────────
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 AI_FILTER_ENABLED = True   # AI 관련성 분석 on/off
-AI_RELEVANCE_THRESHOLD = 3  # 1~5점 중 이 점수 이상만 주요 발의안으로 분류
+AI_RELEVANCE_THRESHOLD = 2  # 1~5점 중 이 점수 이상만 주요 발의안으로 분류
