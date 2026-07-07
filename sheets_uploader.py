@@ -1,12 +1,9 @@
 """
 Google Sheets 업로더 - ALLBILLV2 필드 반영
-[포함여부 3단계]
-  Y = 포함 확정 (5점, 4점 또는 수동 확인)
-  N = 제외 확정 (1점 또는 수동 제외)
-  ? = 검토 필요 (2점, 3점 - 담당자가 Y/N으로 수동 변경)
-[수동 수정 보존]
-  기존에 Y 또는 N으로 수동 변경한 셀은 덮어쓰지 않음
-  ? 는 매번 재계산 (점수가 바뀔 수 있으므로)
+[수정 내용]
+- 이번주변동 시트: 대표발의자, 링크 컬럼 추가
+- 신규발의안 시트: 당일/주간 신규 법안
+- 포함여부 Y/N/? 3단계 유지
 """
 import json
 import logging
@@ -51,14 +48,7 @@ def write_sheet(ws, headers, rows):
     })
 
 
-def get_include_flag(score: int | None) -> str:
-    """
-    점수 기반 포함여부 자동 결정
-    5점, 4점 → Y (포함 확정)
-    3점, 2점 → ? (검토 필요)
-    1점      → N (제외 확정)
-    없음     → ? (검토 필요)
-    """
+def get_include_flag(score):
     if score is None:
         return "?"
     if score >= 4:
@@ -77,6 +67,7 @@ def upload_to_sheets(data: dict, start: str, end: str):
         client = get_client()
         sh = client.open_by_key(SPREADSHEET_ID)
         now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
+        today_str = datetime.now().strftime("%Y-%m-%d")
 
         # ── 대시보드 ──
         ws = get_or_create_sheet(sh, "대시보드", rows=50, cols=6)
@@ -95,6 +86,19 @@ def upload_to_sheets(data: dict, start: str, end: str):
             ["이번 주 신규",  len(data["new_bills"])],
             ["이번 주 변동",  len(data["changed"])],
         ])
+
+        # ── 신규발의안 (7일치 저장, 당일 필터는 대시보드에서) ──
+        ws = get_or_create_sheet(sh, "신규발의안", rows=500, cols=10)
+        headers = ["수집일", "의안번호", "의안종류", "의안명", "제안자구분",
+                   "대표발의자", "발의일", "소관위원회", "링크"]
+        rows = [[
+            str(b.get("first_seen", "") or "")[:10],
+            b["bill_no"], b["bill_kind"] or "-", b["bill_name"],
+            b["proposer_kind"] or "-", b["proposer"] or "-",
+            b["propose_dt"] or "-", b["committee"] or "-",
+            b["detail_link"] or "-"
+        ] for b in data["new_bills"]]
+        write_sheet(ws, headers, rows)
 
         # ── 계류 중인 법안 ──
         ws = get_or_create_sheet(sh, "계류중")
@@ -120,48 +124,45 @@ def upload_to_sheets(data: dict, start: str, end: str):
                 for b in data["completed"]]
         write_sheet(ws, headers, rows)
 
-        # ── 이번 주 변동 ──
+        # ── 이번 주 변동 (상태변경만, 대표발의자+링크 포함) ──
+        # bill_id로 all_bills에서 대표발의자, 링크 조회
+        bill_info = {b["bill_id"]: b for b in data["all_bills"]}
+
         ws = get_or_create_sheet(sh, "이번주변동")
-        headers = ["구분", "의안번호", "의안명", "변경항목", "이전값", "현재값", "일시"]
-        rows = []
+        headers = ["의안번호", "의안명", "대표발의자", "변경항목", "이전값", "현재값", "일시", "링크"]
         field_labels = {
             "proc_result":            "본회의 심의결과",
             "committee_proc_result":  "위원회 처리결과",
             "committee":              "소관위원회",
             "bill_name":              "의안명"
         }
-        for b in data["new_bills"]:
-            rows.append(["신규발의", b["bill_no"], b["bill_name"],
-                         "신규 발의", "-", b["bill_kind"] or "-", b["propose_dt"] or "-"])
+        rows = []
         for c in data["changed"]:
-            rows.append(["상태변경", c["bill_id"], c["bill_name"],
-                         field_labels.get(c["field_name"], c["field_name"]),
-                         c["old_value"] or "-", c["new_value"] or "-",
-                         c["changed_at"][:16]])
+            info = bill_info.get(c["bill_id"], {})
+            rows.append([
+                c["bill_id"],
+                c["bill_name"],
+                info.get("proposer") or "-",
+                field_labels.get(c["field_name"], c["field_name"]),
+                c["old_value"] or "-",
+                c["new_value"] or "-",
+                c["changed_at"][:16],
+                info.get("detail_link") or c.get("detail_link") or "-"
+            ])
         write_sheet(ws, headers, rows)
 
         # ── 전체 발의안 ──
-        # 컬럼 순서:
-        # [0] 포함여부(Y/N/?)  [1] 관련성점수  [2] AI태그  [3] 의안번호  [4] 의안종류
-        # [5] 의안명  [6] 제안자구분  [7] 대표발의자  [8] 발의일  [9] 회기
-        # [10] 소관위원회  [11] 위원회처리결과  [12] 본회의결과
-        # [13] 처리일  [14] 최초수집일  [15] 링크
-
         ws = get_or_create_sheet(sh, "전체발의안", rows=1000, cols=16)
 
-        # 기존 Y/N 수동 수정값 읽어오기 (? 는 보존 안 함 - 재계산)
         existing_manual = {}
         try:
             existing_data = ws.get_all_values()
             if len(existing_data) > 1:
                 for row in existing_data[1:]:
                     if len(row) >= 4 and row[3]:
-                        bill_no = row[3]
                         val = row[0].strip() if row[0] else ""
-                        # Y 또는 N으로 수동 확정된 것만 보존
-                        # ? 는 보존하지 않고 재계산
                         if val in ("Y", "N"):
-                            existing_manual[bill_no] = val
+                            existing_manual[row[3]] = val
         except Exception:
             pass
 
@@ -182,13 +183,9 @@ def upload_to_sheets(data: dict, start: str, end: str):
                     score = None
 
             bill_no = b["bill_no"]
-
-            # 포함여부 결정
             if bill_no in existing_manual:
-                # 수동으로 Y/N 확정한 것은 보존
                 include = existing_manual[bill_no]
             else:
-                # 점수 기반 자동 결정
                 include = get_include_flag(score)
 
             rows.append([
@@ -211,8 +208,6 @@ def upload_to_sheets(data: dict, start: str, end: str):
             ])
 
         write_sheet(ws, headers, rows)
-
-        # 포함여부 열(A열) 포맷
         ws.format("A2:A1000", {
             "horizontalAlignment": "CENTER",
             "textFormat": {"bold": True}
