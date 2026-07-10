@@ -138,17 +138,16 @@ def upload_to_sheets(data: dict, start: str, end: str):
         }
         rows = []
         for c in data["changed"]:
-            info = bill_info.get(c["bill_id"], {})
-            rows.append([
-                c["bill_id"],
-                c["bill_name"],
-                info.get("proposer") or "-",
-                field_labels.get(c["field_name"], c["field_name"]),
-                c["old_value"] or "-",
-                c["new_value"] or "-",
-                c["changed_at"][:16],
-                info.get("detail_link") or c.get("detail_link") or "-"
-            ])
+    rows.append([
+        c["bill_no"],        # ✅ bill_no로 변경
+        c["bill_name"],
+        c["proposer"] or "-",  # ✅ 직접 접근
+        field_labels.get(c["field_name"], c["field_name"]),
+        c["old_value"] or "-",
+        c["new_value"] or "-",
+        c["changed_at"][:16],
+        c["detail_link"] or "-"
+    ])
         write_sheet(ws, headers, rows)
 
         # ── 전체 발의안 ──
