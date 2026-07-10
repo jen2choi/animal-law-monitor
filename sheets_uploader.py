@@ -1,7 +1,7 @@
 """
 Google Sheets 업로더 - ALLBILLV2 필드 반영
 [수정 내용]
-- 이번주변동 시트: 대표발의자, 링크 컬럼 추가
+- 이번주변동 시트: 의안번호, 대표발의자, 링크 컬럼 추가
 - 신규발의안 시트: 당일/주간 신규 법안
 - 포함여부 Y/N/? 3단계 유지
 """
@@ -67,7 +67,6 @@ def upload_to_sheets(data: dict, start: str, end: str):
         client = get_client()
         sh = client.open_by_key(SPREADSHEET_ID)
         now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
-        today_str = datetime.now().strftime("%Y-%m-%d")
 
         # ── 대시보드 ──
         ws = get_or_create_sheet(sh, "대시보드", rows=50, cols=6)
@@ -87,7 +86,7 @@ def upload_to_sheets(data: dict, start: str, end: str):
             ["이번 주 변동",  len(data["changed"])],
         ])
 
-        # ── 신규발의안 (7일치 저장, 당일 필터는 대시보드에서) ──
+        # ── 신규발의안 ──
         ws = get_or_create_sheet(sh, "신규발의안", rows=500, cols=10)
         headers = ["수집일", "의안번호", "의안종류", "의안명", "제안자구분",
                    "대표발의자", "발의일", "소관위원회", "링크"]
@@ -124,31 +123,26 @@ def upload_to_sheets(data: dict, start: str, end: str):
                 for b in data["completed"]]
         write_sheet(ws, headers, rows)
 
-        # ── 이번 주 변동 (상태변경만, 대표발의자+링크 포함) ──
-        # bill_id로 all_bills에서 대표발의자, 링크 조회
-        bill_info = {b["bill_id"]: b for b in data["all_bills"]}
-
+        # ── 이번 주 변동 (상태변경만) ──
         ws = get_or_create_sheet(sh, "이번주변동")
         headers = ["의안번호", "의안명", "대표발의자", "변경항목", "이전값", "현재값", "일시", "링크"]
         field_labels = {
-            "proc_result":            "본회의 심의결과",
-            "committee_proc_result":  "위원회 처리결과",
-            "committee":              "소관위원회",
-            "bill_name":              "의안명"
+            "proc_result":           "본회의 심의결과",
+            "committee_proc_result": "위원회 처리결과",
+            "committee":             "소관위원회",
+            "bill_name":             "의안명"
         }
         rows = []
         for c in data["changed"]:
-    rows = []
-        for c in data["changed"]:
             rows.append([
-                c["bill_no"],
-                c["bill_name"],
-                c["proposer"] or "-",
-                field_labels.get(c["field_name"], c["field_name"]),
-                c["old_value"] or "-",
-                c["new_value"] or "-",
-                c["changed_at"][:16],
-                c["detail_link"] or "-"
+                c.get("bill_no") or "-",
+                c.get("bill_name") or "-",
+                c.get("proposer") or "-",
+                field_labels.get(c.get("field_name", ""), c.get("field_name", "-")),
+                c.get("old_value") or "-",
+                c.get("new_value") or "-",
+                str(c.get("changed_at") or "")[:16],
+                c.get("detail_link") or "-"
             ])
         write_sheet(ws, headers, rows)
 
@@ -171,7 +165,6 @@ def upload_to_sheets(data: dict, start: str, end: str):
                    "제안자구분", "대표발의자", "발의일", "회기",
                    "소관위원회", "위원회처리결과", "본회의결과", "처리일",
                    "최초수집일", "링크"]
-
         rows = []
         for b in data["all_bills"]:
             score = b.get("ai_score")
@@ -184,10 +177,7 @@ def upload_to_sheets(data: dict, start: str, end: str):
                     score = None
 
             bill_no = b["bill_no"]
-            if bill_no in existing_manual:
-                include = existing_manual[bill_no]
-            else:
-                include = get_include_flag(score)
+            include = existing_manual.get(bill_no) or get_include_flag(score)
 
             rows.append([
                 include,
