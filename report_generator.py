@@ -96,12 +96,13 @@ def get_all_data(start: str, end: str) -> dict:
         """).fetchall()
 
         new_bills = conn.execute("""
-            SELECT bill_id, bill_no, bill_name, bill_kind, proposer, proposer_kind,
-                   propose_dt, committee, proc_result, detail_link
-            FROM bills
-            WHERE first_seen BETWEEN ? AND ?
-            ORDER BY propose_dt DESC
-        """, (start, end)).fetchall()
+    SELECT bill_id, bill_no, bill_name, bill_kind, proposer, proposer_kind,
+           propose_dt, committee, proc_result, detail_link,
+           ai_score
+    FROM bills
+    WHERE first_seen BETWEEN ? AND ?
+    ORDER BY propose_dt DESC
+""", (start, end)).fetchall()
 
         changed = conn.execute("""
             SELECT h.bill_id, b.bill_no, b.bill_name, b.proposer, h.field_name,
