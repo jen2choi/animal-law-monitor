@@ -86,19 +86,19 @@ def upload_to_sheets(data: dict, start: str, end: str):
             ["이번 주 변동",  len(data["changed"])],
         ])
 
-       # ── 신규발의안 ──
-ws = get_or_create_sheet(sh, "신규발의안", rows=500, cols=10)
-headers = ["수집일", "의안번호", "의안종류", "의안명", "제안자구분",
-           "대표발의자", "발의일", "소관위원회", "링크"]
-rows = [[
-    str(b.get("first_seen", "") or "")[:10],
-    b["bill_no"], b["bill_kind"] or "-", b["bill_name"],
-    b["proposer_kind"] or "-", b["proposer"] or "-",
-    b["propose_dt"] or "-", b["committee"] or "-",
-    b["detail_link"] or "-"
-] for b in data["new_bills"]
-    if get_include_flag(b.get("ai_score")) == "Y"]
-write_sheet(ws, headers, rows)
+        # ── 신규발의안 ──
+        ws = get_or_create_sheet(sh, "신규발의안", rows=500, cols=10)
+        headers = ["수집일", "의안번호", "의안종류", "의안명", "제안자구분",
+                   "대표발의자", "발의일", "소관위원회", "링크"]
+        rows = [[
+            str(b.get("first_seen", "") or "")[:10],
+            b["bill_no"], b["bill_kind"] or "-", b["bill_name"],
+            b["proposer_kind"] or "-", b["proposer"] or "-",
+            b["propose_dt"] or "-", b["committee"] or "-",
+            b["detail_link"] or "-"
+        ] for b in data["new_bills"]
+            if get_include_flag(b.get("ai_score")) == "Y"]
+        write_sheet(ws, headers, rows)
 
         # ── 계류 중인 법안 ──
         ws = get_or_create_sheet(sh, "계류중")
