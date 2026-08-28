@@ -56,8 +56,8 @@ def job_report():
             data, start_str, end_str = get_report_data()
             upload_to_sheets(data, start_str, end_str)
             logger.info("✔ Google Sheets 업로드 완료")
-        except Exception:
-            logger.warning("Google Sheets 업로드 건너뜀 (설정 확인 필요) %s", e, exc_info=True)
+        except Exception as e:
+            logger.warning("Google Sheets 업로드 건너뜀 (설정 확인 필요): %s", e, exc_info=True)
     except Exception:
         logger.exception("✘ 리포트 잡 오류")
 
