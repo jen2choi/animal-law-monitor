@@ -49,7 +49,14 @@ def write_sheet(ws, headers, rows):
 
 
 def get_include_flag(score):
-    if score is None:
+    # ai_score 컬럼은 SQLite에 TEXT 타입으로 저장되어 있어 DB에서 그대로 읽으면
+    # "2"처럼 문자열로 반환된다. int로 정규화하지 않으면 "2" >= 4 비교에서
+    # TypeError가 발생해 이 함수를 호출하는 시트 업로드 전체가 조용히 실패한다.
+    if score is None or score == "" or score == "-":
+        return "?"
+    try:
+        score = int(score)
+    except (TypeError, ValueError):
         return "?"
     if score >= 4:
         return "Y"
@@ -67,6 +74,27 @@ def upload_to_sheets(data: dict, start: str, end: str):
         client = get_client()
         sh = client.open_by_key(SPREADSHEET_ID)
         now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
+
+        # ── 수기 포함여부(Y/N) 오버라이드 읽기 ──
+        # "전체발의안" 탭에서 담당자가 직접 Y/N으로 수정해둔 값은 다른 탭(신규발의안 등)의
+        # 자동 필터링에도 동일하게 반영되어야 하므로, 시트를 새로 쓰기 전에 먼저 읽어온다.
+        existing_manual = {}
+        try:
+            existing_ws = sh.worksheet("전체발의안")
+            existing_data = existing_ws.get_all_values()
+            if len(existing_data) > 1:
+                for row in existing_data[1:]:
+                    if len(row) >= 4 and row[3]:
+                        val = row[0].strip() if row[0] else ""
+                        if val in ("Y", "N"):
+                            existing_manual[row[3]] = val
+        except gspread.WorksheetNotFound:
+            pass
+        except Exception:
+            logger.warning("기존 '전체발의안' 시트의 수기 포함여부를 읽는 데 실패했습니다.", exc_info=True)
+
+        def get_effective_flag(bill_no, score):
+            return existing_manual.get(bill_no) or get_include_flag(score)
 
         # ── 대시보드 ──
         ws = get_or_create_sheet(sh, "대시보드", rows=50, cols=6)
@@ -97,7 +125,7 @@ def upload_to_sheets(data: dict, start: str, end: str):
             b["propose_dt"] or "-", b["committee"] or "-",
             b["detail_link"] or "-"
         ] for b in data["new_bills"]
-            if get_include_flag(b.get("ai_score")) == "Y"]
+            if get_effective_flag(b["bill_no"], b.get("ai_score")) == "Y"]
         write_sheet(ws, headers, rows)
 
         # ── 계류 중인 법안 ──
@@ -150,17 +178,7 @@ def upload_to_sheets(data: dict, start: str, end: str):
         # ── 전체 발의안 ──
         ws = get_or_create_sheet(sh, "전체발의안", rows=1000, cols=16)
 
-        existing_manual = {}
-        try:
-            existing_data = ws.get_all_values()
-            if len(existing_data) > 1:
-                for row in existing_data[1:]:
-                    if len(row) >= 4 and row[3]:
-                        val = row[0].strip() if row[0] else ""
-                        if val in ("Y", "N"):
-                            existing_manual[row[3]] = val
-        except Exception:
-            pass
+        # (수기 포함여부는 위에서 이미 읽어온 existing_manual을 그대로 사용)
 
         headers = ["포함여부", "관련성점수", "AI태그", "의안번호", "의안종류", "의안명",
                    "제안자구분", "대표발의자", "발의일", "회기",
@@ -178,7 +196,7 @@ def upload_to_sheets(data: dict, start: str, end: str):
                     score = None
 
             bill_no = b["bill_no"]
-            include = existing_manual.get(bill_no) or get_include_flag(score)
+            include = get_effective_flag(bill_no, score)
 
             rows.append([
                 include,
