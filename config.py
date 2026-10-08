@@ -9,7 +9,8 @@ BASE_DIR = Path(__file__).parent
 # ──────────────────────────────────────────────
 # 국회 OpenAPI 설정
 # ──────────────────────────────────────────────
-API_KEY = os.getenv("ASSEMBLY_API_KEY", "2f9680f4b1554511954ba421194ee8bb")
+# 인증키는 GitHub Secrets(ASSEMBLY_API_KEY)로만 주입한다. 코드에 기본값을 두지 않는다.
+API_KEY = os.getenv("ASSEMBLY_API_KEY", "")
 API_BASE_URL = "https://open.assembly.go.kr/portal/openapi"
 
 # 검색 키워드 - 동물복지/보호/권리 관련 광범위 수집

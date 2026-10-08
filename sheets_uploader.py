@@ -48,6 +48,14 @@ def write_sheet(ws, headers, rows):
     })
 
 
+def _get(row, key):
+    """sqlite3.Row / dict 모두에서 없는 키는 None으로 처리"""
+    try:
+        return row[key]
+    except (KeyError, IndexError):
+        return None
+
+
 def get_include_flag(score):
     # ai_score 컬럼은 SQLite에 TEXT 타입으로 저장되어 있어 DB에서 그대로 읽으면
     # "2"처럼 문자열로 반환된다. int로 정규화하지 않으면 "2" >= 4 비교에서
@@ -176,14 +184,18 @@ def upload_to_sheets(data: dict, start: str, end: str):
         write_sheet(ws, headers, rows)
 
         # ── 전체 발의안 ──
-        ws = get_or_create_sheet(sh, "전체발의안", rows=1000, cols=16)
+        ws = get_or_create_sheet(sh, "전체발의안", rows=1000, cols=18)
+        if ws.col_count < 18:
+            ws.add_cols(18 - ws.col_count)
 
         # (수기 포함여부는 위에서 이미 읽어온 existing_manual을 그대로 사용)
 
         headers = ["포함여부", "관련성점수", "AI태그", "의안번호", "의안종류", "의안명",
                    "제안자구분", "대표발의자", "발의일", "회기",
                    "소관위원회", "위원회처리결과", "본회의결과", "처리일",
-                   "최초수집일", "링크"]
+                   "최초수집일", "링크",
+                   # 화면용 시트(Apps Script)가 헤더명으로 읽는 열. 기존 열 위치(포함여부 A, 의안번호 D)를 지키려고 맨 뒤에 추가.
+                   "위원회처리일", "주요내용"]
         rows = []
         for b in data["all_bills"]:
             score = b.get("ai_score")
@@ -214,7 +226,9 @@ def upload_to_sheets(data: dict, start: str, end: str):
                 b["proc_result"] or "-",
                 b["proc_dt"] or "-",
                 b["first_seen"][:10] if b.get("first_seen") else "-",
-                b["detail_link"] or "-"
+                b["detail_link"] or "-",
+                _get(b, "committee_proc_dt") or "-",
+                _get(b, "summary") or "-",
             ])
 
         write_sheet(ws, headers, rows)

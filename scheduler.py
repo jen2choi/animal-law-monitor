@@ -45,10 +45,20 @@ def job_collect():
     except Exception as e:
         logger.warning("AI 분석 건너뜀: %s", e, exc_info=True)
 
+    # 제안이유 및 주요내용 수집 (신규 의안 위주)
+    try:
+        from summary_fetcher import run_summary_fetch
+        run_summary_fetch()
+        logger.info("✔ 주요내용 수집 완료")
+    except Exception as e:
+        logger.warning("주요내용 수집 건너뜀: %s", e, exc_info=True)
+
 
 def job_report():
     logger.info("▶ 주간 리포트 잡 시작")
     try:
+        from summary_fetcher import migrate_summary_column
+        migrate_summary_column()
         path = generate_weekly_report()
         logger.info("✔ 엑셀 리포트 생성 완료: %s", path)
         try:

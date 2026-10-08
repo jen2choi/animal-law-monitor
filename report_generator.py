@@ -116,9 +116,9 @@ def get_all_data(start: str, end: str) -> dict:
         all_bills = conn.execute("""
             SELECT bill_id, bill_no, bill_name, bill_kind, proposer, proposer_kind,
                    propose_dt, propose_sess, committee,
-                   committee_proc_result, proc_result, proc_dt,
+                   committee_proc_result, committee_proc_dt, proc_result, proc_dt,
                    first_seen, last_updated, detail_link,
-            ai_score, ai_tags
+                   ai_score, ai_tags, summary
     FROM bills
             ORDER BY propose_dt DESC
         """).fetchall()
