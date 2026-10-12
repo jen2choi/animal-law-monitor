@@ -48,6 +48,17 @@ def write_sheet(ws, headers, rows):
     })
 
 
+def _link(url):
+    """예전 상세 주소(billDetail.do)를 개편된 상세 페이지 주소로 변환"""
+    if not url or url == "-":
+        return "-"
+    if "/bill/billDetail.do?billId=" in url:
+        bill_id = url.split("billId=", 1)[1].split("&", 1)[0]
+        return ("https://likms.assembly.go.kr/bill/bi/billDetailPage.do"
+                f"?billId={bill_id}&currMenuNo=2600044")
+    return url
+
+
 def _get(row, key):
     """sqlite3.Row / dict 모두에서 없는 키는 None으로 처리"""
     try:
@@ -131,7 +142,7 @@ def upload_to_sheets(data: dict, start: str, end: str):
             b["bill_no"], b["bill_kind"] or "-", b["bill_name"],
             b["proposer_kind"] or "-", b["proposer"] or "-",
             b["propose_dt"] or "-", b["committee"] or "-",
-            b["detail_link"] or "-"
+            _link(b["detail_link"])
         ] for b in data["new_bills"]
             if get_effective_flag(b["bill_no"], b.get("ai_score")) == "Y"]
         write_sheet(ws, headers, rows)
@@ -144,7 +155,7 @@ def upload_to_sheets(data: dict, start: str, end: str):
                  b["proposer_kind"] or "-", b["proposer"] or "-",
                  b["propose_dt"] or "-", b["committee"] or "-",
                  b["committee_proc_result"] or "-",
-                 b["detail_link"] or "-"]
+                 _link(b["detail_link"])]
                 for b in data["pending"]]
         write_sheet(ws, headers, rows)
 
@@ -156,7 +167,7 @@ def upload_to_sheets(data: dict, start: str, end: str):
                  b["proposer"] or "-", b["propose_dt"] or "-",
                  b["committee"] or "-", b["committee_proc_result"] or "-",
                  b["proc_result"] or "-", b["proc_dt"] or "-",
-                 b["detail_link"] or "-"]
+                 _link(b["detail_link"])]
                 for b in data["completed"]]
         write_sheet(ws, headers, rows)
 
@@ -167,7 +178,8 @@ def upload_to_sheets(data: dict, start: str, end: str):
             "proc_result":           "본회의 심의결과",
             "committee_proc_result": "위원회 처리결과",
             "committee":             "소관위원회",
-            "bill_name":             "의안명"
+            "bill_name":             "의안명",
+            "proc_stage":            "진행단계",
         }
         rows = []
         for c in data["changed"]:
@@ -179,14 +191,14 @@ def upload_to_sheets(data: dict, start: str, end: str):
                 c.get("old_value") or "-",
                 c.get("new_value") or "-",
                 str(c.get("changed_at") or "")[:16],
-                c.get("detail_link") or "-"
+                _link(c.get("detail_link"))
             ])
         write_sheet(ws, headers, rows)
 
         # ── 전체 발의안 ──
-        ws = get_or_create_sheet(sh, "전체발의안", rows=1000, cols=18)
-        if ws.col_count < 18:
-            ws.add_cols(18 - ws.col_count)
+        ws = get_or_create_sheet(sh, "전체발의안", rows=1000, cols=19)
+        if ws.col_count < 19:
+            ws.add_cols(19 - ws.col_count)
 
         # (수기 포함여부는 위에서 이미 읽어온 existing_manual을 그대로 사용)
 
@@ -195,7 +207,7 @@ def upload_to_sheets(data: dict, start: str, end: str):
                    "소관위원회", "위원회처리결과", "본회의결과", "처리일",
                    "최초수집일", "링크",
                    # 화면용 시트(Apps Script)가 헤더명으로 읽는 열. 기존 열 위치(포함여부 A, 의안번호 D)를 지키려고 맨 뒤에 추가.
-                   "위원회처리일", "주요내용"]
+                   "위원회처리일", "주요내용", "진행단계"]
         rows = []
         for b in data["all_bills"]:
             score = b.get("ai_score")
@@ -226,9 +238,10 @@ def upload_to_sheets(data: dict, start: str, end: str):
                 b["proc_result"] or "-",
                 b["proc_dt"] or "-",
                 b["first_seen"][:10] if b.get("first_seen") else "-",
-                b["detail_link"] or "-",
+                _link(b["detail_link"]),
                 _get(b, "committee_proc_dt") or "-",
                 _get(b, "summary") or "-",
+                _get(b, "proc_stage") or "-",
             ])
 
         write_sheet(ws, headers, rows)

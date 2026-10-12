@@ -118,7 +118,7 @@ def get_all_data(start: str, end: str) -> dict:
                    propose_dt, propose_sess, committee,
                    committee_proc_result, committee_proc_dt, proc_result, proc_dt,
                    first_seen, last_updated, detail_link,
-                   ai_score, ai_tags, summary
+                   ai_score, ai_tags, summary, proc_stage
     FROM bills
             ORDER BY propose_dt DESC
         """).fetchall()

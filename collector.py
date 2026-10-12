@@ -16,6 +16,20 @@ logger = logging.getLogger(__name__)
 ENDPOINT = f"{API_BASE_URL}/ALLBILLV2"
 ERACO = "제22대"
 
+# 의안정보시스템 개편 후 상세 페이지 주소. 예전 주소(billDetail.do)는 중간 리다이렉트를
+# 거치는데, 환경에 따라 홈 화면으로 떨어지는 경우가 있어 최종 주소를 바로 쓴다.
+DETAIL_URL = "https://likms.assembly.go.kr/bill/bi/billDetailPage.do?billId={bill_id}&currMenuNo=2600044"
+
+
+def bill_link(bill_id: str) -> str:
+    return DETAIL_URL.format(bill_id=bill_id) if bill_id else ""
+
+
+def migrate_bills_columns(conn):
+    cols = [r[1] for r in conn.execute("PRAGMA table_info(bills)").fetchall()]
+    if "proc_stage" not in cols:
+        conn.execute("ALTER TABLE bills ADD COLUMN proc_stage TEXT DEFAULT NULL")
+
 
 def fetch_bills_page(keyword: str, page: int, page_size: int = 100) -> dict:
     params = {
@@ -80,8 +94,10 @@ def upsert_bill(conn, row: dict, now: str) -> tuple[bool, bool]:
     cmmt_proc_result = row.get("JRCMIT_PROC_RSLT") or ""
     cmmt_proc_dt     = row.get("JRCMIT_PROC_DT") or ""
     proc_result   = row.get("RGS_CONF_RSLT") or ""
-    proc_dt       = row.get("RGS_CONF_DT") or ""
-    detail_link   = f"https://likms.assembly.go.kr/bill/billDetail.do?billId={bill_id}" if bill_id else ""
+    # 본회의 의결일은 RGS_RSLN_DT (RGS_CONF_DT는 응답에 없는 필드)
+    proc_dt       = row.get("RGS_RSLN_DT") or row.get("RGS_CONF_DT") or ""
+    proc_stage    = row.get("PROC_STAGE_CD") or ""   # 의안 진행단계 (예: 소관위접수, 본회의의결)
+    detail_link   = bill_link(bill_id)
     raw_json      = json.dumps(row, ensure_ascii=False)
 
     pk = bill_id or bill_no
@@ -97,12 +113,12 @@ def upsert_bill(conn, row: dict, now: str) -> tuple[bool, bool]:
             INSERT INTO bills
               (bill_id, bill_no, bill_name, bill_kind, proposer, proposer_kind,
                propose_dt, propose_sess, committee, committee_proc_result,
-               committee_proc_dt, proc_result, proc_dt,
+               committee_proc_dt, proc_result, proc_dt, proc_stage,
                detail_link, raw_json, first_seen, last_updated)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
         """, (pk, bill_no, bill_name, bill_kind, proposer, proposer_kind,
               propose_dt, propose_sess, committee, cmmt_proc_result,
-              cmmt_proc_dt, proc_result, proc_dt,
+              cmmt_proc_dt, proc_result, proc_dt, proc_stage,
               detail_link, raw_json, now, now))
         return True, False
 
@@ -121,6 +137,20 @@ def upsert_bill(conn, row: dict, now: str) -> tuple[bool, bool]:
             old_val = ""
         if new_val and new_val != old_val:
             changes.append((pk, now, field, old_val, new_val))
+
+    # 진행단계: 처음 채워질 때(빈 값 → 값)는 변동으로 기록하지 않음 (기존 의안 일괄 백필 대비)
+    try:
+        old_stage = existing["proc_stage"] or ""
+    except IndexError:
+        old_stage = ""
+    if proc_stage and old_stage and proc_stage != old_stage:
+        changes.append((pk, now, "proc_stage", old_stage, proc_stage))
+
+    # 이력에 남기지 않는 보조 필드(날짜·진행단계·링크)는 매번 최신값으로 갱신
+    conn.execute("""
+        UPDATE bills SET committee_proc_dt=?, proc_dt=?, proc_stage=?, detail_link=?
+        WHERE bill_id=?
+    """, (cmmt_proc_dt, proc_dt, proc_stage, detail_link, pk))
 
     if changes:
         for change in changes:
@@ -163,6 +193,7 @@ def run_collection():
         try:
             bills = fetch_all_bills(keyword)
             with get_conn() as conn:
+                migrate_bills_columns(conn)
                 for row in bills:
                     is_new, is_updated = upsert_bill(conn, row, now)
                     new_cnt     += is_new
