@@ -107,7 +107,8 @@ def _get_tags(bill_name: str) -> list:
     return tags
 
 
-ANIMAL_RE = re.compile(r"동물|반려|야생동|가축|유기견|유기묘|로드킬")
+# 「반려」는 「반려되는(거절)」, 「가축」은 「가축의 방목」 같은 무관한 문맥에도 걸려 제외
+ANIMAL_RE = re.compile(r"동물|반려견|반려묘|야생동|유기견|유기묘|로드킬")
 ECOLOGY_RE = re.compile(r"생물\s?다양성|생태계|서식지|야생\s?생물")
 
 
