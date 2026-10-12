@@ -18,7 +18,9 @@ print("ai_filter.py 로드됨", flush=True)
 import json
 import logging
 
-from config import AI_FILTER_ENABLED, AI_RELEVANCE_THRESHOLD
+import re
+
+from config import AI_FILTER_ENABLED, AI_RELEVANCE_THRESHOLD, CONTENT_CHECK_LAWS
 from database import get_conn
 
 logger = logging.getLogger(__name__)
@@ -34,6 +36,7 @@ SCORE_5_LAWS = [
     "야생생물 보호", "야생생물보호",
     "실험동물에 관한 법률",
     "개 식용 종식", "개식용종식",
+    "개의 식용",
     "동물대체시험",
 ]
 
@@ -53,6 +56,7 @@ SCORE_4_KEYWORDS = [
     "야생동물", "야생 동물",
     "동물진료", "동물 진료",
     "동물병원", "동물 병원",
+    "동물용의약품",
 ]
 
 SCORE_3_KEYWORDS = [
@@ -103,8 +107,30 @@ def _get_tags(bill_name: str) -> list:
     return tags
 
 
-def classify_bill(bill_name: str, proposer_kind: str = "") -> dict:
-    """법안명으로 관련성 점수, 태그 반환 (API 없이 규칙 기반)"""
+ANIMAL_RE = re.compile(r"동물|반려|야생동|가축|유기견|유기묘|로드킬")
+ECOLOGY_RE = re.compile(r"생물\s?다양성|생태계|서식지|야생\s?생물")
+
+
+def _classify_by_content(name: str, summary: str, proposer_type: str):
+    """민법·자연환경보전법 등 법안명만으로 판단이 어려운 법률을 주요내용으로 분류.
+    해당 법률이 아니면 None 반환."""
+    if not any(law in name for law in CONTENT_CHECK_LAWS):
+        return None
+    text = summary or ""
+    animal_hits = len(ANIMAL_RE.findall(text))
+    if animal_hits >= 1:
+        return {"score": 4, "tags": _get_tags(text) or ["동물보호"],
+                "summary": "주요내용에 동물 관련 내용 포함", "proposer_type": proposer_type}
+    if "민법" not in name and ECOLOGY_RE.search(text):
+        # 생태·서식지 관련이지만 동물 직접 언급 없음 → 담당자 검토(?)
+        return {"score": 2, "tags": ["야생동물"],
+                "summary": "생태·서식지 관련 (검토 필요)", "proposer_type": proposer_type}
+    return {"score": 1, "tags": [], "summary": "동물 관련 내용 없음",
+            "proposer_type": proposer_type}
+
+
+def classify_bill(bill_name: str, proposer_kind: str = "", summary: str = "") -> dict:
+    """법안명(필요 시 주요내용)으로 관련성 점수, 태그 반환 (API 없이 규칙 기반)"""
     name = bill_name.strip()
 
     proposer_type = "의원"
@@ -112,6 +138,10 @@ def classify_bill(bill_name: str, proposer_kind: str = "") -> dict:
         proposer_type = "위원장"
     elif "정부" in (proposer_kind or ""):
         proposer_type = "정부"
+
+    by_content = _classify_by_content(name, summary, proposer_type)
+    if by_content is not None:
+        return by_content
 
     for law in SCORE_5_LAWS:
         if law in name:
@@ -176,7 +206,9 @@ def run_ai_filter(force: bool = False):
     migrate_db()
 
     with get_conn() as conn:
-        query = "SELECT bill_id, bill_name, proposer_kind FROM bills"
+        has_summary = "summary" in [r[1] for r in conn.execute("PRAGMA table_info(bills)").fetchall()]
+        query = ("SELECT bill_id, bill_name, proposer_kind, "
+                 + ("summary" if has_summary else "NULL AS summary") + " FROM bills")
         if not force:
             query += " WHERE ai_score IS NULL"
         bills = conn.execute(query).fetchall()
@@ -189,7 +221,8 @@ def run_ai_filter(force: bool = False):
     score_counts = {1: 0, 2: 0, 3: 0, 4: 0, 5: 0}
 
     for bill in bills:
-        result = classify_bill(bill["bill_name"], bill["proposer_kind"] or "")
+        summary = bill["summary"] if bill["summary"] not in (None, "-") else ""
+        result = classify_bill(bill["bill_name"], bill["proposer_kind"] or "", summary)
         with get_conn() as conn:
             conn.execute("""
                 UPDATE bills

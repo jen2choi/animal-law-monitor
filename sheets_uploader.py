@@ -12,7 +12,7 @@ from datetime import datetime
 import gspread
 from google.oauth2.service_account import Credentials
 
-from config import GOOGLE_CREDENTIALS, SPREADSHEET_ID
+from config import GOOGLE_CREDENTIALS, SPREADSHEET_ID, EXTRA_BILL_NOS
 
 logger = logging.getLogger(__name__)
 
@@ -113,7 +113,11 @@ def upload_to_sheets(data: dict, start: str, end: str):
             logger.warning("기존 '전체발의안' 시트의 수기 포함여부를 읽는 데 실패했습니다.", exc_info=True)
 
         def get_effective_flag(bill_no, score):
-            return existing_manual.get(bill_no) or get_include_flag(score)
+            if bill_no in existing_manual:
+                return existing_manual[bill_no]
+            if str(bill_no) in EXTRA_BILL_NOS:
+                return "Y"
+            return get_include_flag(score)
 
         # ── 대시보드 ──
         ws = get_or_create_sheet(sh, "대시보드", rows=50, cols=6)

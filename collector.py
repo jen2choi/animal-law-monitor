@@ -8,7 +8,7 @@ from datetime import datetime
 
 import requests
 
-from config import API_KEY, API_BASE_URL, MAX_PAGES, SEARCH_KEYWORDS
+from config import API_KEY, API_BASE_URL, MAX_PAGES, SEARCH_KEYWORDS, EXTRA_BILL_NOS
 from database import get_conn
 
 logger = logging.getLogger(__name__)
@@ -38,8 +38,12 @@ def fetch_bills_page(keyword: str, page: int, page_size: int = 100) -> dict:
         "pIndex": page,
         "pSize":  page_size,
         "ERACO":  ERACO,
-        "BILL_NM": keyword,
     }
+    # "의안번호:2202918" 형태면 의안번호로 조회, 아니면 법안명 키워드로 조회
+    if keyword.startswith("의안번호:"):
+        params["BILL_NO"] = keyword.split(":", 1)[1]
+    else:
+        params["BILL_NM"] = keyword
     resp = requests.get(ENDPOINT, params=params, timeout=30)
     resp.raise_for_status()
     return resp.json()
@@ -186,7 +190,8 @@ def run_collection():
     logger.info("═══ 수집 시작: %s ═══", now)
     total_new = total_updated = 0
 
-    for keyword in SEARCH_KEYWORDS:
+    targets = list(SEARCH_KEYWORDS) + [f"의안번호:{no}" for no in EXTRA_BILL_NOS]
+    for keyword in targets:
         error_msg = None
         new_cnt = updated_cnt = 0
         bills = []

@@ -36,15 +36,6 @@ def job_collect():
     except Exception:
         logger.exception("✘ 수집 잡 오류")
 
-    # AI 필터링 (신규 발의안 분류)
-    try:
-        from ai_filter import run_ai_filter, migrate_db
-        migrate_db()
-        run_ai_filter(force=True)
-        logger.info("✔ AI 분석 완료")
-    except Exception as e:
-        logger.warning("AI 분석 건너뜀: %s", e, exc_info=True)
-
     # 제안이유 및 주요내용 수집 (신규 의안 위주)
     try:
         from summary_fetcher import run_summary_fetch
@@ -52,6 +43,15 @@ def job_collect():
         logger.info("✔ 주요내용 수집 완료")
     except Exception as e:
         logger.warning("주요내용 수집 건너뜀: %s", e, exc_info=True)
+
+    # 관련성 분류 (주요내용 수집 뒤에 실행해야 민법 등 내용 기반 분류가 가능)
+    try:
+        from ai_filter import run_ai_filter, migrate_db
+        migrate_db()
+        run_ai_filter(force=True)
+        logger.info("✔ AI 분석 완료")
+    except Exception as e:
+        logger.warning("AI 분석 건너뜀: %s", e, exc_info=True)
 
 
 def job_report():
